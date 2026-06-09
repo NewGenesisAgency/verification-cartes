@@ -2,6 +2,8 @@
 
 # dependencies
 /node_modules
+node_modules.zip
+package.json.commands
 /.pnp
 .pnp.*
 .yarn/*

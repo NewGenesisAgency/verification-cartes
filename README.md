@@ -1,36 +1,61 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Lycée Edouard Branly - MDL
 
-## Getting Started
+Plateforme web de la Maison des Lycéens (MDL) du Lycée Edouard Branly.
 
-First, run the development server:
+## Description
+
+Cette application Next.js centralise les différents outils et services numériques destinés aux étudiants et au personnel du lycée.
+
+## Applications disponibles
+
+- **Vérification des Cartes** : Application de vérification et validation des cartes étudiantes
+
+## Installation
+
+Installez les dépendances :
+
+```bash
+npm install
+```
+
+## Développement
+
+Lancez le serveur de développement :
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Ouvrez [http://localhost:3000](http://localhost:3000) dans votre navigateur.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Build
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Pour créer une version de production :
 
-## Learn More
+```bash
+npm run build
+npm start
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Technologies
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- Next.js 15
+- React 19
+- TypeScript
+- Tailwind CSS
+- Lucide React (icônes)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Structure du projet
 
-## Deploy on Vercel
+```
+src/
+├── app/
+│   ├── components/      # Composants React
+│   ├── verification-cartes/  # Application de vérification des cartes
+│   ├── layout.tsx       # Layout principal
+│   └── page.tsx         # Page d'accueil
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Licence
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+© Lycée Edouard Branly - MDL

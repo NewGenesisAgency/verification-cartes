@@ -1,26 +1,260 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+@keyframes square-out-hesitate {
+  0% {
+    clip-path: inset(0 0 0 0);
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  40% {
+    clip-path: inset(33% 33% 33% 33%);
+  }
+
+  100% {
+    clip-path: inset(100% 100% 100% 100%);
   }
 }
 
+:root {
+  --bk: #0c0c0c;
+  --bg: #0c0c0c;
+  --cl: #f8fbfa;
+}
+
+a {
+  color: inherit;
+  text-decoration: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+
+html {
+  scrollbar-width: none;
+}
+
+body,
+html {
+  touch-action: pan-y;
+  -ms-touch-action: pan-y;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  backface-visibility: hidden;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  font-family: Montserrat, Afacad Flux, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: white;
+  color: black;
+}
+
+body.loading {
+  overflow: hidden;
+}
+
+.text-default {
+  color: #e9e4d4;
+}
+
+.revealer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100svh;
+  transform-origin: center top;
+  background: var(--bk);
+  pointer-events: none;
+  z-index: 9999999999999999999999999999999999999;
+}
+
+.center--items {
+  transform: translate(calc(50vw - 50%));
+}
+
+.torche {
+  transform: scaleY(1) !important;
+}
+
+@view-transition {
+  navigation: auto;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none !important;
+  z-index: auto;
+}
+
+::view-transition-group(root) {
+  z-index: auto !important;
+}
+
+::view-transition-image-pair(root) {
+  isolation: isolate;
+  will-change: clip-path;
+  z-index: 1;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+  animation: none !important;
+}
+
+::view-transition-new(root) {
+  z-index: 10000;
+  animation: clipPathTransition 2s cubic-bezier(0.9, 0, 0.1, 1) !important;
+}
+
+@keyframes clipPathTransition {
+  0% {
+    clip-path: polygon(10% 50%, 90% 50%, 90% 50%, 10% 50%);
+  }
+
+  50% {
+    clip-path: polygon(7% 35%, 93% 35%, 93% 65%, 7% 65%);
+  }
+
+  100% {
+    clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%);
+  }
+}
+
+hr {
+  opacity: 0;
+  transition: opacity 0.8s ease-out;
+  will-change: opacity;
+  pointer-events: none;
+}
+
+hr.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+::-webkit-scrollbar {
+  background: transparent;
+  border-radius: 1vw;
+  width: 0vw;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 1vw;
+  background: transparent;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::selection {
+  background-color: var(--bk);
+  color: var(--cl);
+}
+
+@keyframes slideUp {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes slideDown {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+}
+
+@keyframes fadeOut {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes fadeIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+@keyframes glassSlideIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+    margin-top: 2rem;
+    margin-bottom: 2rem;
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+}
+
+@keyframes glassSlideOut {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.9);
+    margin-top: 2rem;
+    margin-bottom: 2rem;
+  }
+}
+
+@keyframes progressLoad {
+  0% {
+    width: 0%;
+  }
+  20% {
+    width: 30%;
+  }
+  50% {
+    width: 60%;
+  }
+  80% {
+    width: 85%;
+  }
+  100% {
+    width: 100%;
+  }
 }
