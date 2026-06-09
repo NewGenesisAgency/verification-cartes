@@ -83,7 +83,8 @@ export async function recognizeOllama(canvas: HTMLCanvasElement): Promise<string
                 images: [base64],
                 stream: false,
                 keep_alive: '30m',   // garde le modèle chargé → pas de cold start
-                options: { temperature: 0 },
+                // num_predict plafonne la sortie (le nom est court) → ~2,5× plus rapide.
+                options: { temperature: 0, num_predict: 24 },
             }),
         });
         if (!res.ok) return tesseractRecognize(canvas);
