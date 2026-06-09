@@ -11,8 +11,8 @@ import jsQR from 'jsqr';
 import { isValidHumanName } from '../utils/nameValidator';
 import { detectWithMultipleWords } from '../utils/detectionHelper';
 import { preloadOCR, terminateOCR } from '../utils/ocrWorker';
-import { ocrRecognize, preloadOcrEngine } from '../utils/ocrEngine';
-import { computeCenteredROI, sampleROI, frameDiff } from '../utils/imageProcessing';
+import { ocrRecognize, preloadOcrEngine, OCR_ENGINE, recognizeOllama, warmOllama } from '../utils/ocrEngine';
+import { computeCenteredROI, sampleROI, frameDiff, cropROI } from '../utils/imageProcessing';
 import { prepareForOcr, type DetectedBox } from '../utils/textPipeline';
 import { debugLog } from '../utils/debug';
 import { fetchStudents, replaceAllStudents } from '../utils/studentsRepo';
@@ -84,12 +84,19 @@ function nameRoiFromQr(box: { x: number; y: number; w: number; h: number }, W: n
  * (LYCEE/LPO/LGT/…) ou « N° dossier / N° carte ». Repli = texte complet.
  */
 function namePortion(text: string): string {
-    const lines = text.split(/\r?\n/);
-    const stop = /^\s*(LYC[EÉ]E|LPO|LGT|LP|COLL[EÈ]GE|CFA|EREA|SEP|[EÉ]COLE|N\s*[°ºo0]|DOSSIER|CARTE|VOTRE|JEUNES)/i;
+    const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
     const kept: string[] = [];
-    for (const line of lines) {
-        if (stop.test(line.trim())) break;
-        kept.push(line);
+    for (const raw of text.split(/\r?\n/)) {
+        const line = norm(raw.trim());
+        if (!line) continue;
+        // Préfixe d'établissement (tolérant aux fautes OCR sur la suite du mot)
+        const isSchool = /^(LYC|LPO|LGT|COL|CFA|ERE|SEP|ECO|LP\b|INSTITUT)/.test(line);
+        // Ligne « N° dossier / N° carte » : marqueur N° ou présence de chiffres
+        const isNumber = /N\s*[°ºo0]/.test(line) || /DOSSIER|CARTE/.test(line) || line.replace(/\D/g, '').length >= 4;
+        // Boilerplate (colonne gauche / bas de carte)
+        const isBoiler = /^(VOTRE|JEUNES|TELECHARGEZ|REJOIGNEZ|AUVERGNE|REGION|PASS)/.test(line);
+        if (isSchool || isNumber || isBoiler) break; // tout ce qui suit n'est plus le nom
+        kept.push(raw);
     }
     const joined = kept.join(' ').trim();
     return joined.length > 0 ? joined : text;
@@ -114,6 +121,8 @@ export default function VerificationCartesPage() {
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [searchOpen, setSearchOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [vlmAnalyzing, setVlmAnalyzing] = useState(false);
+    const [autoVlm, setAutoVlm] = useState(false);
 
     const streamRef = useRef<MediaStream | null>(null);
     const ocrIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -131,6 +140,9 @@ export default function VerificationCartesPage() {
     const pdf417TickRef = useRef(0);
     const ocrBoxesRef = useRef<{ boxes: DetectedBox[]; ts: number }>({ boxes: [], ts: 0 });
     const qrAnchorRef = useRef<{ box: { x: number; y: number; w: number; h: number }; ts: number } | null>(null);
+    const autoVlmRef = useRef(false);
+    const autoVlmFiredRef = useRef(false);
+    const analyzeVlmRef = useRef<() => void>(() => {});
     const prevSampleRef = useRef<Uint8ClampedArray | null>(null);
     const ocrCandidateRef = useRef<{ cardId: string; count: number; ts: number } | null>(null);
 
@@ -141,6 +153,7 @@ export default function VerificationCartesPage() {
     useEffect(() => {
         preloadOCR();
         preloadOcrEngine();
+        void warmOllama(); // précharge le VLM (best-effort) pour le bouton « Analyse IA »
         return () => { void terminateOCR(); };
     }, []);
 
@@ -473,7 +486,7 @@ export default function VerificationCartesPage() {
         if (roi.width < 40 || roi.height < 24) roi = computeCenteredROI(video.videoWidth, video.videoHeight, 0.8);
         const { canvas: prepared, boxes } = prepareForOcr(video, roi, 3);
         ocrBoxesRef.current = { boxes, ts: Date.now() };
-        const text2 = await ocrRecognize(prepared);
+        const text2 = await ocrRecognize(OCR_ENGINE === 'ollama' ? cropROI(video, roi) : prepared);
         const words2 = await extractValidNames(namePortion(text2));
         const allWords = [...new Set([...words, ...words2])];
         const res = await detectWithMultipleWords(allWords, databaseStudents);
@@ -538,12 +551,19 @@ export default function VerificationCartesPage() {
             const sample = sampleROI(video, roi, 32);
             const prev = prevSampleRef.current;
             prevSampleRef.current = sample.signature;
-            if (sample.variance < MIN_DETAIL_VARIANCE) return;                          // zone vide
+            if (sample.variance < MIN_DETAIL_VARIANCE) { autoVlmFiredRef.current = false; return; } // pas de carte → réarme l'auto
             if (prev && frameDiff(prev, sample.signature) > STABILITY_THRESHOLD) return; // bouge encore
+
+            // Mode Auto IA : carte stable → déclenche le VLM une fois (puis on saute l'OCR Tesseract).
+            if (autoVlmRef.current) {
+                if (!autoVlmFiredRef.current) { autoVlmFiredRef.current = true; analyzeVlmRef.current(); }
+                return;
+            }
 
             const { canvas: prepared, boxes } = prepareForOcr(video, roi, 3);
             ocrBoxesRef.current = { boxes, ts: Date.now() };
-            const text = await ocrRecognize(prepared);
+            // VLM (Ollama) : image couleur naturelle ; OCR classique : binaire du pipeline.
+            const text = await ocrRecognize(OCR_ENGINE === 'ollama' ? cropROI(video, roi) : prepared);
             if (!text || text.trim().length === 0) return;
 
             const words = await extractValidNames(namePortion(text));
@@ -746,6 +766,66 @@ export default function VerificationCartesPage() {
         });
     }, [saveToStats, showResult]);
 
+    // ---- Analyse IA à la demande (VLM Ollama gemma3:4b) -------------------
+    const analyzeWithVLM = useCallback(async () => {
+        if (vlmAnalyzing) return;
+        const video = videoRef.current;
+        if (!video || video.videoWidth === 0 || databaseStudents.length === 0) return;
+
+        setVlmAnalyzing(true);
+        try {
+            const anchor = qrAnchorRef.current;
+            const roi = (anchor && Date.now() - anchor.ts < 4000)
+                ? nameRoiFromQr(anchor.box, video.videoWidth, video.videoHeight)
+                : computeCenteredROI(video.videoWidth, video.videoHeight, 0.8);
+            const crop = cropROI(video, roi);
+            const text = await recognizeOllama(crop);
+            const words = await extractValidNames(namePortion(text));
+            const result = await detectWithMultipleWords(words, databaseStudents);
+
+            if (result.student && result.isValidMatch) {
+                const student = result.student;
+                const eligible = student.eligible?.toLowerCase() === 'oui';
+                saveToStats(student, eligible, 'ocr');
+                showResult({
+                    student, eligible, confidence: result.confidence,
+                    message: eligible ? 'Accès autorisé !' : 'Accès refusé',
+                    status: 'success', playValid: eligible, playError: !eligible,
+                });
+            } else {
+                showResult({
+                    student: { nom: text.trim().slice(0, 40), prenom: 'Analyse IA', classe: 'Identité non reconnue', eligible: 'non' },
+                    eligible: false, message: 'Aucune correspondance en base', status: 'error',
+                });
+            }
+        } catch {
+            showResult({
+                student: { nom: '', prenom: 'Analyse IA', classe: 'Service indisponible', eligible: 'non' },
+                eligible: false, message: 'IA indisponible (Ollama éteint ?)', status: 'error',
+            });
+        } finally {
+            setVlmAnalyzing(false);
+        }
+    }, [vlmAnalyzing, databaseStudents, extractValidNames, saveToStats, showResult]);
+
+    // Raccourci clavier : touche A déclenche l'analyse IA.
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            const tag = (e.target as HTMLElement | null)?.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+            if (e.key === 'a' || e.key === 'A' || e.key === ' ' || e.code === 'Space') {
+                e.preventDefault();
+                void analyzeWithVLM();
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [analyzeWithVLM]);
+
+    // Garde des refs à jour pour le déclenchement auto depuis la boucle de scan.
+    useEffect(() => { autoVlmRef.current = autoVlm; }, [autoVlm]);
+    useEffect(() => { analyzeVlmRef.current = () => { void analyzeWithVLM(); }; }, [analyzeWithVLM]);
+
     // Plein écran (mode kiosque)
     const toggleFullscreen = useCallback(() => {
         if (!document.fullscreenElement) {
@@ -887,6 +967,40 @@ export default function VerificationCartesPage() {
                                     <span>Rechercher</span>
                                 </button>
                             )}
+
+                            {/* Analyse IA (VLM Ollama gemma3:4b) — touche A */}
+                            <button
+                                onClick={analyzeWithVLM}
+                                disabled={vlmAnalyzing}
+                                title="Analyse IA du nom (gemma3:4b) — raccourci : touche A"
+                                className="
+                                    group relative inline-flex items-center gap-2 px-4 py-2.5
+                                    bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white rounded-2xl
+                                    shadow-[0_8px_24px_0_rgba(139,92,246,0.35)]
+                                    hover:shadow-[0_12px_32px_0_rgba(139,92,246,0.5)]
+                                    transition-all duration-[350ms] hover:scale-105 active:scale-95
+                                    text-sm font-semibold disabled:opacity-60
+                                "
+                            >
+                                <Sparkles className="w-4 h-4" />
+                                <span>Analyse IA</span>
+                            </button>
+
+                            {/* Bascule Auto IA (lance l'analyse dès qu'une carte est détectée) */}
+                            <button
+                                onClick={() => setAutoVlm(v => !v)}
+                                title="Analyse IA automatique dès qu'une carte stable est détectée"
+                                className={`
+                                    inline-flex items-center gap-2 px-3 py-2.5 rounded-2xl text-sm font-semibold
+                                    transition-all duration-300 hover:scale-105 active:scale-95 border
+                                    ${autoVlm
+                                        ? 'bg-violet-600 text-white border-violet-500 shadow-[0_8px_24px_0_rgba(139,92,246,0.4)]'
+                                        : 'bg-white/70 text-gray-700 border-white/40'}
+                                `}
+                            >
+                                <span className={`w-2 h-2 rounded-full ${autoVlm ? 'bg-white animate-pulse' : 'bg-gray-400'}`} />
+                                Auto
+                            </button>
 
                             {/* Gestion des comptes (droit manage_accounts) */}
                             {can('manage_accounts') && (
@@ -1218,6 +1332,52 @@ export default function VerificationCartesPage() {
                                             </p>
                                         )}
                                     </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+
+                        {/* Overlay d'analyse IA (VLM) */}
+                        <AnimatePresence>
+                            {vlmAnalyzing && (
+                                <motion.div
+                                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                                    className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-md"
+                                >
+                                    <motion.div
+                                        initial={{ scale: 0.9, opacity: 0, y: 12 }}
+                                        animate={{ scale: 1, opacity: 1, y: 0 }}
+                                        exit={{ scale: 0.95, opacity: 0 }}
+                                        transition={{ type: 'spring', stiffness: 300, damping: 24 }}
+                                        className="relative w-[min(88%,400px)] rounded-[2rem] p-8 border border-white/15 bg-white/5 backdrop-blur-2xl shadow-2xl"
+                                    >
+                                        <div className="flex flex-col items-center gap-5">
+                                            <div className="relative w-20 h-20 flex items-center justify-center">
+                                                <motion.div
+                                                    className="absolute inset-0 rounded-full bg-gradient-to-br from-violet-500 via-fuchsia-500 to-indigo-500 blur-lg opacity-70"
+                                                    animate={{ scale: [1, 1.18, 1] }}
+                                                    transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+                                                />
+                                                <motion.div
+                                                    className="relative"
+                                                    animate={{ rotate: 360 }}
+                                                    transition={{ duration: 3.2, repeat: Infinity, ease: 'linear' }}
+                                                >
+                                                    <Sparkles className="w-10 h-10 text-white drop-shadow-lg" strokeWidth={1.8} />
+                                                </motion.div>
+                                            </div>
+                                            <div className="text-center">
+                                                <p className="text-white font-bold text-lg">Analyse par IA</p>
+                                                <p className="text-white/60 text-xs mt-1">gemma3:4b lit la carte…</p>
+                                            </div>
+                                            <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+                                                <motion.div
+                                                    className="h-full w-1/3 rounded-full bg-gradient-to-r from-violet-400 via-fuchsia-400 to-indigo-400"
+                                                    animate={{ x: ['-120%', '420%'] }}
+                                                    transition={{ duration: 1.15, repeat: Infinity, ease: 'easeInOut' }}
+                                                />
+                                            </div>
+                                        </div>
+                                    </motion.div>
                                 </motion.div>
                             )}
                         </AnimatePresence>

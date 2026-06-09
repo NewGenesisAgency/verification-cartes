@@ -16,10 +16,17 @@ import { recognizeText } from './ocrWorker';
 import { canvasToBlob } from './imageProcessing';
 import { debugLog } from './debug';
 
-export const OCR_ENGINE: 'neural' | 'tesseract' =
-    process.env.NEXT_PUBLIC_OCR_ENGINE === 'neural' ? 'neural' : 'tesseract';
+export type OcrEngineName = 'neural' | 'tesseract' | 'ollama';
+export const OCR_ENGINE: OcrEngineName =
+    process.env.NEXT_PUBLIC_OCR_ENGINE === 'neural' ? 'neural'
+        : process.env.NEXT_PUBLIC_OCR_ENGINE === 'ollama' ? 'ollama'
+            : 'tesseract';
 
 const TROCR_MODEL = process.env.NEXT_PUBLIC_TROCR_MODEL || 'Xenova/trocr-small-printed';
+
+// Ollama (VLM local) — gemma3:4b (multimodal). gemma3:1b NE gère PAS l'image.
+const OLLAMA_URL = process.env.NEXT_PUBLIC_OLLAMA_URL || 'http://localhost:11434';
+const OLLAMA_MODEL = process.env.NEXT_PUBLIC_OLLAMA_MODEL || 'gemma3:4b';
 
 // ---- Tesseract -------------------------------------------------------------
 async function tesseractRecognize(canvas: HTMLCanvasElement): Promise<string> {
@@ -61,13 +68,56 @@ async function neuralRecognize(canvas: HTMLCanvasElement): Promise<string> {
     }
 }
 
+// ---- Ollama (VLM local, ex. gemma3:4b) ------------------------------------
+/** Reconnaissance par VLM Ollama. Exporté pour le déclenchement manuel. */
+export async function recognizeOllama(canvas: HTMLCanvasElement): Promise<string> {
+    try {
+        const base64 = canvas.toDataURL('image/png').split(',')[1];
+        const res = await fetch(`${OLLAMA_URL}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: OLLAMA_MODEL,
+                prompt: "Cette image montre le prénom puis le NOM d'un élève (au-dessus du nom du lycée). "
+                    + 'Réponds UNIQUEMENT par "Prénom NOM", sans ponctuation ni autre texte.',
+                images: [base64],
+                stream: false,
+                keep_alive: '30m',   // garde le modèle chargé → pas de cold start
+                options: { temperature: 0 },
+            }),
+        });
+        if (!res.ok) return tesseractRecognize(canvas);
+        const json = await res.json();
+        const out = (json?.response ?? '').trim();
+        return out.length > 0 ? out : tesseractRecognize(canvas);
+    } catch (e) {
+        debugLog('[OCR] Ollama indisponible → repli Tesseract.', e);
+        return tesseractRecognize(canvas);
+    }
+}
+
+/** Charge le modèle Ollama en mémoire (évite le cold start au 1er scan). */
+export async function warmOllama(): Promise<void> {
+    try {
+        await fetch(`${OLLAMA_URL}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: OLLAMA_MODEL, prompt: 'ok', stream: false, keep_alive: '30m' }),
+        });
+        debugLog('[OCR] Ollama préchargé.');
+    } catch { /* ignore */ }
+}
+
 // ---- API publique ----------------------------------------------------------
 /** Pré-charge le moteur sélectionné (à appeler au montage). */
 export function preloadOcrEngine(): void {
     if (OCR_ENGINE === 'neural') void loadTrocr();
+    if (OCR_ENGINE === 'ollama') void warmOllama();
 }
 
 /** Reconnaît le texte d'un canvas avec le moteur sélectionné (repli Tesseract). */
 export async function ocrRecognize(canvas: HTMLCanvasElement): Promise<string> {
-    return OCR_ENGINE === 'neural' ? neuralRecognize(canvas) : tesseractRecognize(canvas);
+    if (OCR_ENGINE === 'neural') return neuralRecognize(canvas);
+    if (OCR_ENGINE === 'ollama') return recognizeOllama(canvas);
+    return tesseractRecognize(canvas);
 }
