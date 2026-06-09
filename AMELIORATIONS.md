@@ -89,7 +89,7 @@ correspondance exacte (anti-faux-positifs).
 - [ ] Détection de réutilisation de carte (au-delà du cooldown).
 
 ### Données & multi-postes
-- [x] **Migration Supabase** : projet `MDL` (ref `smuzfvqlsqgqeplgrnos`, Paris).
+- [x] **Migration Supabase** : projet `MDL` (ref `VOTRE-REF-PROJET`, Paris).
       Tables `students` + `passages`, RLS réservé aux agents authentifiés.
       Élèves = source de vérité partagée ; passages écrits en base avec
       **file d'attente offline** rejouée à la reconnexion. Repli xlsx/localStorage

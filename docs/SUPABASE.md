@@ -2,8 +2,8 @@
 
 ## Coordonnées
 - **Projet :** `MDL` · organisation `NewGenesis`
-- **Ref / ID :** `smuzfvqlsqgqeplgrnos`
-- **URL API :** `https://smuzfvqlsqgqeplgrnos.supabase.co`
+- **Ref / ID :** `VOTRE-REF-PROJET`
+- **URL API :** `https://VOTRE-REF-PROJET.supabase.co`
 - **Région :** Paris (eu-west-3)
 - **Coût :** 0 €/mois (plan gratuit — ⚠️ le projet se met en pause après ~1
   semaine sans activité ; il se réveille au premier accès).
