@@ -44,6 +44,22 @@ create table if not exists public.profiles (
     created_at  timestamptz not null default now()
 );
 
+create table if not exists public.incidents (
+    id               uuid primary key default gen_random_uuid(),
+    type             text not null check (type in ('blame', 'incident')),
+    severity         int  check (severity between 1 and 3),
+    student_qr       text,
+    nom              text not null default '',
+    prenom           text not null default '',
+    classe           text not null default '',
+    description      text not null default '',
+    created_by       uuid references auth.users(id) on delete set null,
+    created_by_email text,
+    created_at       timestamptz not null default now()
+);
+create index if not exists incidents_created_at_idx on public.incidents (created_at desc);
+create index if not exists incidents_type_idx       on public.incidents (type);
+
 create table if not exists public.audit_log (
     id          uuid primary key default gen_random_uuid(),
     actor_email text,
@@ -110,6 +126,12 @@ create policy "passages_delete_perm"  on public.passages for delete to authentic
 -- profiles : chacun voit le sien ; un gestionnaire de comptes voit tout
 create policy "profiles_select_own"    on public.profiles for select to authenticated using (id = auth.uid());
 create policy "profiles_select_manage" on public.profiles for select to authenticated using (public.has_perm('manage_accounts'));
+
+-- incidents : lecture = view_stats ; écriture = create_incident ou blame ; suppression = blame
+alter table public.incidents enable row level security;
+create policy "incidents_select_perm"  on public.incidents for select  to authenticated using (public.has_perm('view_stats'));
+create policy "incidents_insert_perm"  on public.incidents for insert  to authenticated with check (public.has_perm('create_incident') or public.has_perm('blame'));
+create policy "incidents_delete_perm"  on public.incidents for delete  to authenticated using (public.has_perm('blame'));
 
 -- audit : lecture = manage_accounts ; insertion = toute action sensible
 create policy "audit_select_perm" on public.audit_log for select to authenticated using (public.has_perm('manage_accounts'));

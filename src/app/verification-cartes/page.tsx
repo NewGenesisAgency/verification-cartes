@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'next-view-transitions';
-import { ArrowLeft, Check, X, Camera as CameraIcon, BarChart3, Search, Sparkles, ScanLine, Upload, Download, Users, Loader2, XCircle, CameraOff, AlertTriangle, LogOut, Maximize, Minimize } from 'lucide-react';
+import { ArrowLeft, Check, X, Camera as CameraIcon, BarChart3, Search, Sparkles, ScanLine, Upload, Download, Users, Loader2, XCircle, CameraOff, AlertTriangle, LogOut, Maximize, Minimize, Flag } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRevealer } from '../hooks/useRevealer';
 import { useProfile } from '../hooks/useProfile';
@@ -19,6 +19,7 @@ import { fetchStudents, replaceAllStudents } from '../utils/studentsRepo';
 import { recordPassage, flushPassageQueue } from '../utils/passagesRepo';
 import { decodePDF417 } from '../utils/pdf417';
 import { logAudit } from '../utils/auditRepo';
+import IncidentModal, { type IncidentDefaults } from '../components/IncidentModal';
 
 type VerificationStatus = 'idle' | 'processing' | 'success' | 'error' | 'screenshot';
 
@@ -123,6 +124,8 @@ export default function VerificationCartesPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [vlmAnalyzing, setVlmAnalyzing] = useState(false);
     const [autoVlm, setAutoVlm] = useState(false);
+    const [incidentOpen, setIncidentOpen] = useState(false);
+    const [incidentDefaults, setIncidentDefaults] = useState<IncidentDefaults | undefined>(undefined);
 
     const streamRef = useRef<MediaStream | null>(null);
     const ocrIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -1002,6 +1005,25 @@ export default function VerificationCartesPage() {
                                 Auto
                             </button>
 
+                            {/* Blâmes & Incidents */}
+                            {(can('view_stats') || can('create_incident') || can('blame')) && (
+                                <Link
+                                    href="/verification-cartes/incidents"
+                                    className="
+                                        group relative inline-flex items-center gap-2 px-4 py-2.5
+                                        backdrop-blur-2xl backdrop-saturate-150
+                                        bg-white/70 border border-white/40 rounded-2xl
+                                        shadow-[0_8px_32px_0_rgba(0,0,0,0.08),inset_0_1px_0_0_rgba(255,255,255,0.8)]
+                                        hover:shadow-[0_12px_40px_0_rgba(0,0,0,0.12)]
+                                        transition-all duration-[350ms] hover:scale-105 active:scale-95
+                                        text-sm font-semibold text-gray-800
+                                    "
+                                >
+                                    <AlertTriangle className="w-4 h-4 text-orange-500 group-hover:text-orange-600 transition-colors" />
+                                    <span>Incidents</span>
+                                </Link>
+                            )}
+
                             {/* Gestion des comptes (droit manage_accounts) */}
                             {can('manage_accounts') && (
                                 <Link
@@ -1332,6 +1354,25 @@ export default function VerificationCartesPage() {
                                             </p>
                                         )}
                                     </div>
+                                    {/* Bouton Signaler */}
+                                    {(can('create_incident') || can('blame')) && (
+                                        <motion.button
+                                            initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.3 }}
+                                            onClick={() => {
+                                                setIncidentDefaults({
+                                                    nom: studentInfo?.nom,
+                                                    prenom: studentInfo?.prenom,
+                                                    classe: studentInfo?.classe,
+                                                    qr: studentInfo?.numero,
+                                                });
+                                                setIncidentOpen(true);
+                                            }}
+                                            className="flex-shrink-0 flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 backdrop-blur-sm border border-white/20 transition-all active:scale-95"
+                                        >
+                                            <Flag className="w-4 h-4 text-white drop-shadow" />
+                                            <span className="text-[9px] text-white/80 font-medium leading-none">Signaler</span>
+                                        </motion.button>
+                                    )}
                                 </motion.div>
                             )}
                         </AnimatePresence>
@@ -1475,6 +1516,13 @@ export default function VerificationCartesPage() {
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            {/* Modal blâme / incident depuis le scanner */}
+            <IncidentModal
+                open={incidentOpen}
+                onClose={() => setIncidentOpen(false)}
+                defaults={incidentDefaults}
+            />
         </div>
     );
 }

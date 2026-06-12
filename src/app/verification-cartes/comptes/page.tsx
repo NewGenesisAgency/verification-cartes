@@ -5,13 +5,10 @@ import { Link } from 'next-view-transitions';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, UserPlus, Trash2, Save, KeyRound, Loader2, ShieldAlert, Users } from 'lucide-react';
 import { useRevealer } from '../../hooks/useRevealer';
-import { useProfile, ALL_PERMISSIONS, PERMISSION_LABELS, type PermissionKey, type Permissions } from '../../hooks/useProfile';
+import { useProfile, ALL_PERMISSIONS, PERMISSION_LABELS, ROLE_PRESETS, type PermissionKey, type Permissions } from '../../hooks/useProfile';
 import { listUsers, createUser, updateUser, deleteUser, type ManagedUser } from '../../utils/usersAdmin';
 
-const DEFAULT_NEW: Partial<Permissions> = {
-    scan: true, view_stats: true, export: true,
-    manage_students: false, clear_history: false, manage_accounts: false,
-};
+const DEFAULT_NEW: Partial<Permissions> = ROLE_PRESETS.gerant.permissions;
 
 export default function ComptesPage() {
     useRevealer();
@@ -26,6 +23,7 @@ export default function ComptesPage() {
     const [newEmail, setNewEmail] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [newPerms, setNewPerms] = useState<Partial<Permissions>>(DEFAULT_NEW);
+    const [newRole, setNewRole] = useState<string>('gerant');
 
     const reload = useCallback(async () => {
         setLoading(true);
@@ -152,6 +150,20 @@ export default function ComptesPage() {
                     <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4 flex items-center gap-2">
                         <UserPlus className="w-5 h-5" /> Nouveau compte
                     </h2>
+                    {/* Presets de rôle */}
+                    <div className="flex flex-wrap gap-2 mb-4">
+                        {Object.entries(ROLE_PRESETS).map(([key, preset]) => (
+                            <button key={key} type="button"
+                                onClick={() => { setNewRole(key); setNewPerms(preset.permissions); }}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                                    newRole === key
+                                        ? 'bg-black text-white border-black'
+                                        : 'bg-white text-gray-600 border-gray-200 hover:border-black'
+                                }`}>
+                                {preset.label}
+                            </button>
+                        ))}
+                    </div>
                     <div className="grid sm:grid-cols-2 gap-4 mb-4">
                         <input type="email" required placeholder="Email" value={newEmail}
                             onChange={(e) => setNewEmail(e.target.value)}
@@ -160,7 +172,7 @@ export default function ComptesPage() {
                             onChange={(e) => setNewPassword(e.target.value)}
                             className="px-4 py-2.5 rounded-xl border border-gray-200 bg-white/80 text-sm focus:outline-none focus:ring-2 focus:ring-black/20" />
                     </div>
-                    <PermissionChecks perms={newPerms} onChange={setNewPerms} />
+                    <PermissionChecks perms={newPerms} onChange={(p) => { setNewPerms(p); setNewRole('custom'); }} />
                     <button type="submit" disabled={busy}
                         className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 active:scale-95 transition disabled:opacity-60">
                         {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />} Créer le compte
@@ -213,6 +225,21 @@ function PermissionChecks({ perms, onChange }: { perms: Partial<Permissions>; on
     );
 }
 
+function detectRole(perms: Partial<Permissions>): string {
+    for (const [key, preset] of Object.entries(ROLE_PRESETS)) {
+        if ((ALL_PERMISSIONS as PermissionKey[]).every(k => Boolean(perms[k]) === Boolean(preset.permissions[k])))
+            return key;
+    }
+    return 'custom';
+}
+
+const ROLE_BADGE: Record<string, string> = {
+    super_admin: 'bg-violet-100 text-violet-700',
+    bureau: 'bg-blue-100 text-blue-700',
+    gerant: 'bg-emerald-100 text-emerald-700',
+    custom: 'bg-gray-100 text-gray-600',
+};
+
 function UserRow({ user, isSelf, busy, onSave, onResetPassword, onDelete }: {
     user: ManagedUser;
     isSelf: boolean;
@@ -223,13 +250,30 @@ function UserRow({ user, isSelf, busy, onSave, onResetPassword, onDelete }: {
 }) {
     const [perms, setPerms] = useState<Partial<Permissions>>(user.permissions ?? {});
     const dirty = (ALL_PERMISSIONS as PermissionKey[]).some(k => Boolean(perms[k]) !== Boolean(user.permissions?.[k]));
+    const role = detectRole(perms);
+    const roleLabel = ROLE_PRESETS[role]?.label ?? 'Personnalisé';
 
     return (
         <div>
             <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
                 <div>
-                    <p className="font-semibold text-black">{user.email}{isSelf && <span className="ml-2 text-xs text-gray-400">(vous)</span>}</p>
-                    <p className="text-xs text-gray-400">Créé le {new Date(user.created_at).toLocaleDateString('fr-FR')}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-black">{user.email}{isSelf && <span className="ml-2 text-xs text-gray-400">(vous)</span>}</p>
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${ROLE_BADGE[role]}`}>{roleLabel}</span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5">Créé le {new Date(user.created_at).toLocaleDateString('fr-FR')}</p>
+                    {/* Raccourcis presets */}
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                        {Object.entries(ROLE_PRESETS).map(([key, preset]) => (
+                            <button key={key} type="button"
+                                onClick={() => setPerms(preset.permissions)}
+                                className={`px-2 py-0.5 rounded-lg text-[11px] font-medium border transition-all ${
+                                    role === key ? 'bg-black text-white border-black' : 'bg-white text-gray-500 border-gray-200 hover:border-black'
+                                }`}>
+                                {preset.label}
+                            </button>
+                        ))}
+                    </div>
                 </div>
                 <div className="flex items-center gap-2">
                     <button onClick={() => onResetPassword(user)} disabled={busy}

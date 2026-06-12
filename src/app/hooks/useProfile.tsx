@@ -9,20 +9,55 @@ export type PermissionKey =
     | 'export'
     | 'manage_students'
     | 'clear_history'
-    | 'manage_accounts';
+    | 'manage_accounts'
+    | 'blame'
+    | 'create_incident';
 
 export type Permissions = Record<PermissionKey, boolean>;
 
 export const PERMISSION_LABELS: Record<PermissionKey, string> = {
-    scan: 'Scanner',
-    view_stats: 'Voir stats / historique',
-    export: 'Exporter (CSV/PDF)',
-    manage_students: 'Gérer la base élèves',
-    clear_history: "Effacer l'historique",
-    manage_accounts: 'Gérer les comptes',
+    scan:             'Scanner',
+    view_stats:       'Voir stats / historique',
+    export:           'Exporter (CSV/PDF)',
+    manage_students:  'Gérer la base élèves',
+    clear_history:    "Effacer l'historique",
+    manage_accounts:  'Gérer les comptes',
+    blame:            'Appliquer des blâmes',
+    create_incident:  'Créer des incidents',
 };
 
 export const ALL_PERMISSIONS = Object.keys(PERMISSION_LABELS) as PermissionKey[];
+
+/** Permissions prédéfinies par rôle. */
+export const ROLE_PRESETS: Record<string, { label: string; color: string; permissions: Partial<Permissions> }> = {
+    super_admin: {
+        label: 'Super Administrateur',
+        color: 'violet',
+        permissions: {
+            scan: true, view_stats: true, export: true,
+            manage_students: true, clear_history: true, manage_accounts: true,
+            blame: true, create_incident: true,
+        },
+    },
+    bureau: {
+        label: 'Membre du Bureau',
+        color: 'blue',
+        permissions: {
+            scan: true, view_stats: true, export: true,
+            manage_students: true, clear_history: true, manage_accounts: false,
+            blame: true, create_incident: true,
+        },
+    },
+    gerant: {
+        label: 'Gérant',
+        color: 'emerald',
+        permissions: {
+            scan: true, view_stats: true, export: false,
+            manage_students: false, clear_history: false, manage_accounts: false,
+            blame: false, create_incident: true,
+        },
+    },
+};
 
 /**
  * Permissions + email de l'agent connecté.
