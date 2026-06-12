@@ -1,10 +1,5 @@
-/**
- * Enregistrement des passages dans Supabase, avec file d'attente offline :
- * si l'insertion échoue (réseau coupé), le passage est mis en file dans
- * localStorage et rejoué plus tard via `flushPassageQueue`.
- */
-
 import { supabase } from './supabase';
+import { localApi } from './localApi';
 import { debugLog } from './debug';
 
 export interface PassageInput {
@@ -12,7 +7,7 @@ export interface PassageInput {
     prenom: string;
     classe: string;
     eligible: boolean;
-    statut: string;        // 'Accepté' | 'Refusé'
+    statut: string;
     source: 'qr' | 'ocr' | 'manual';
 }
 
@@ -29,78 +24,64 @@ function enqueue(passage: PassageInput) {
         const queue: PassageRow[] = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
         queue.push({ ...passage, borne: BORNE_ID, scanned_at: new Date().toISOString() });
         localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
-    } catch {
-        // localStorage plein / indisponible : on abandonne ce passage en file.
-    }
+    } catch { /* localStorage indisponible */ }
 }
 
-/** Enregistre un passage (Supabase si possible, sinon file offline). */
+/** Enregistre un passage. Supabase → SQLite local → file offline. */
 export async function recordPassage(passage: PassageInput): Promise<void> {
-    if (!supabase) {
-        enqueue(passage);
+    if (supabase) {
+        const { error } = await supabase.from('passages').insert({
+            nom: passage.nom, prenom: passage.prenom, classe: passage.classe,
+            eligible: passage.eligible, statut: passage.statut, source: passage.source,
+            borne: BORNE_ID,
+        });
+        if (error) { debugLog('Passage mis en file (offline):', error.message); enqueue(passage); }
         return;
     }
-    const { error } = await supabase.from('passages').insert({
-        nom: passage.nom,
-        prenom: passage.prenom,
-        classe: passage.classe,
-        eligible: passage.eligible,
-        statut: passage.statut,
-        source: passage.source,
-        borne: BORNE_ID,
-    });
-    if (error) {
-        debugLog('Passage mis en file (offline):', error.message);
-        enqueue(passage);
-    }
+    try {
+        await localApi.post('/passages', { ...passage, borne: BORNE_ID });
+    } catch { enqueue(passage); }
 }
 
-/** Rejoue les passages en file d'attente (à appeler quand on est en ligne). */
+/** Rejoue les passages en file d'attente. */
 export async function flushPassageQueue(): Promise<void> {
-    if (!supabase) return;
     let queue: PassageRow[] = [];
-    try {
-        queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
-    } catch {
-        return;
-    }
+    try { queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { return; }
     if (queue.length === 0) return;
 
-    const { error } = await supabase.from('passages').insert(
-        queue.map((p) => ({
-            nom: p.nom,
-            prenom: p.prenom,
-            classe: p.classe,
-            eligible: p.eligible,
-            statut: p.statut,
-            source: p.source,
-            borne: p.borne || BORNE_ID,
-            scanned_at: p.scanned_at,
-        })),
-    );
-    if (!error) {
-        localStorage.removeItem(QUEUE_KEY);
-        debugLog(`File de passages synchronisée (${queue.length}).`);
+    if (supabase) {
+        const { error } = await supabase.from('passages').insert(
+            queue.map((p) => ({ nom: p.nom, prenom: p.prenom, classe: p.classe, eligible: p.eligible, statut: p.statut, source: p.source, borne: p.borne || BORNE_ID, scanned_at: p.scanned_at }))
+        );
+        if (!error) { localStorage.removeItem(QUEUE_KEY); debugLog(`File synchronisée (${queue.length}).`); }
+        return;
     }
+    try {
+        for (const p of queue) await localApi.post('/passages', p);
+        localStorage.removeItem(QUEUE_KEY);
+        debugLog(`File SQLite synchronisée (${queue.length}).`);
+    } catch { /* retry plus tard */ }
 }
 
-/** Supprime tout l'historique des passages (Supabase). */
+/** Supprime tout l'historique. */
 export async function deleteAllPassages(): Promise<boolean> {
-    if (!supabase) return false;
-    const { error } = await supabase
-        .from('passages')
-        .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000');
-    return !error;
+    if (supabase) {
+        const { error } = await supabase.from('passages').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        return !error;
+    }
+    try { await localApi.delete('/passages'); return true; } catch { return false; }
 }
 
-/** Charge l'historique des passages depuis Supabase. */
+/** Charge l'historique des passages. */
 export async function fetchPassages(): Promise<PassageRow[] | null> {
-    if (!supabase) return null;
-    const { data, error } = await supabase
-        .from('passages')
-        .select('nom,prenom,classe,eligible,statut,source,borne,scanned_at')
-        .order('scanned_at', { ascending: false });
-    if (error || !data) return null;
-    return data as PassageRow[];
+    if (supabase) {
+        const { data, error } = await supabase
+            .from('passages')
+            .select('nom,prenom,classe,eligible,statut,source,borne,scanned_at')
+            .order('scanned_at', { ascending: false });
+        if (error || !data) return null;
+        return data as PassageRow[];
+    }
+    try { return await localApi.get<PassageRow[]>('/passages'); }
+    catch { return null; }
 }
